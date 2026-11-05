@@ -1,0 +1,63 @@
+name: Build Loop Android APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "App.tsx"
+      - "app.json"
+      - "app.config.js"
+      - "package.json"
+      - "package-lock.json"
+      - "lib/**"
+      - "supabase/**"
+      - ".github/workflows/android-apk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: loop-android-apk
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the app
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install packages
+        run: npm install
+
+      - name: Generate Android project
+        run: npx expo prebuild --platform android --no-install --non-interactive
+
+      - name: Build installable debug APK
+        run: |
+          cd android
+          ./gradlew assembleDebug --no-daemon
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ vars.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: loop-android-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
