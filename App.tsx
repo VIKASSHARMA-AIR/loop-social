@@ -95,6 +95,25 @@ export default function App() {
 
   async function signOut() { await supabase?.auth.signOut(); setProfile(null); setPage('home'); }
 
+  async function removePost(post: Post) {
+    if (!supabase) return;
+    const deleteNow = async () => {
+      const { error } = await supabase.from('posts').delete().eq('id', post.id);
+      if (error) return alertUser('Post did not delete', error.message);
+      const { error: mediaError } = await supabase.storage.from('loop-media').remove([post.media_path]);
+      if (mediaError) alertUser('Post removed; media cleanup failed', mediaError.message);
+      await load();
+    };
+    if (Platform.OS === 'web') {
+      if (window.confirm('Delete this post?')) await deleteNow();
+      return;
+    }
+    Alert.alert('Delete this post?', 'The post and its uploaded media will be removed.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => { void deleteNow(); } },
+    ]);
+  }
+
   async function chooseMedia() {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) return alertUser('Allow photo access', 'Loop needs access to your media library to attach a photo or short video.');
@@ -114,7 +133,10 @@ export default function App() {
       const { error: uploadError } = await supabase.storage.from('loop-media').upload(path, bytes, { contentType, upsert: false });
       if (uploadError) throw uploadError;
       const { error } = await supabase.from('posts').insert({ user_id: session.user.id, media_path: path, media_type: picked.type === 'video' ? 'video' : 'image', caption: caption.trim(), status: 'pending' });
-      if (error) throw error;
+      if (error) {
+        await supabase.storage.from('loop-media').remove([path]);
+        throw error;
+      }
       setPicked(null); setCaption(''); setPage('home'); await load();
       alertUser('Sent for review', 'Your post is uploaded and will appear publicly after a moderator approves it.');
     } catch (e: any) { alertUser('Upload did not finish', e.message ?? 'Check your connection and try again.'); }
@@ -194,13 +216,13 @@ export default function App() {
   return <SafeAreaView style={s.safe}><StatusBar barStyle="dark-content" backgroundColor={theme.canvas} />
     <View style={s.header}><View style={s.brand}><Text style={s.brandMark}>↗</Text><Text style={s.brandName}>loop</Text></View><Pressable onPress={() => setPage('wallet')} style={s.coinPill}><Text>✦</Text><Text style={{ fontWeight: '800' }}> 0</Text></Pressable></View>
     <ScrollView style={s.main} contentContainerStyle={{ paddingBottom: 20 }} keyboardShouldPersistTaps="handled">
-      {page === 'home' && <><View style={s.headingRow}><View><Text style={s.h1}>Your feed</Text><Text style={s.sub}>Small moments from your people.</Text></View><Pressable onPress={load}><Text style={s.actionText}>{refreshing ? '…' : '↻'}</Text></Pressable></View><Feed posts={filteredPosts} userId={session.user.id} following={following} onLike={toggleLike} onComment={openComments} onReport={reportPost} onFollow={toggleFollow} onRemove={async p => { const yes = Platform.OS === 'web' ? window.confirm('Delete this post?') : true; if (!yes) return; await supabase!.from('posts').delete().eq('id', p.id); await load(); }} />
+      {page === 'home' && <><View style={s.headingRow}><View><Text style={s.h1}>Your feed</Text><Text style={s.sub}>Small moments from your people.</Text></View><Pressable onPress={load}><Text style={s.actionText}>{refreshing ? '…' : '↻'}</Text></Pressable></View><Feed posts={filteredPosts} userId={session.user.id} following={following} onLike={toggleLike} onComment={openComments} onReport={reportPost} onFollow={toggleFollow} onRemove={removePost} />
       </>}
-      {page === 'discover' && <><Text style={s.h1}>Discover</Text><TextInput value={query} onChangeText={searchUsers} placeholder="Search people and posts" style={s.input} placeholderTextColor={theme.muted} />{searchProfiles.length > 0 && <View style={s.card}><Text style={s.cardTitle}>People</Text>{searchProfiles.map(p => <View key={p.id} style={s.personRow}><Avatar url={p.avatar_url} name={p.display_name} /><View style={{ flex: 1 }}><Text style={s.bold}>{p.display_name}</Text><Text style={s.sub}>@{p.username}</Text></View><FollowButton following={following.includes(p.id)} onPress={() => toggleFollow(p.id)} /></View>)}</View>}<Feed posts={filteredPosts} userId={session.user.id} following={following} onLike={toggleLike} onComment={openComments} onReport={reportPost} onFollow={toggleFollow} onRemove={async p => { await supabase!.from('posts').delete().eq('id', p.id); await load(); }} />
+      {page === 'discover' && <><Text style={s.h1}>Discover</Text><TextInput value={query} onChangeText={searchUsers} placeholder="Search people and posts" style={s.input} placeholderTextColor={theme.muted} />{searchProfiles.length > 0 && <View style={s.card}><Text style={s.cardTitle}>People</Text>{searchProfiles.map(p => <View key={p.id} style={s.personRow}><Avatar url={p.avatar_url} name={p.display_name} /><View style={{ flex: 1 }}><Text style={s.bold}>{p.display_name}</Text><Text style={s.sub}>@{p.username}</Text></View><FollowButton following={following.includes(p.id)} onPress={() => toggleFollow(p.id)} /></View>)}</View>}<Feed posts={filteredPosts} userId={session.user.id} following={following} onLike={toggleLike} onComment={openComments} onReport={reportPost} onFollow={toggleFollow} onRemove={removePost} />
       </>}
       {page === 'upload' && <><Text style={s.h1}>Create a post</Text><Text style={s.sub}>Photos and short videos up to 90 seconds.</Text><Pressable style={s.mediaPicker} onPress={chooseMedia}><Text style={s.pickIcon}>▧</Text><Text style={s.bold}>{picked?.fileName || (picked?.type === 'video' ? 'Video selected' : 'Choose photo or video')}</Text><Text style={s.sub}>Select from your device</Text>{picked?.uri && <Image source={{ uri: picked.uri }} style={s.pickedPreview} />}</Pressable><TextInput value={caption} onChangeText={setCaption} multiline placeholder="Write a caption…" style={[s.input, { minHeight: 100, textAlignVertical: 'top' }]} placeholderTextColor={theme.muted} maxLength={500} /><Pressable onPress={publishPost} style={s.primaryButton}><Text style={s.primaryText}>{busy ? 'Uploading…' : 'Share for review'}</Text></Pressable><Text style={s.smallNote}>New posts enter review before they appear in the public feed.</Text></>}
       {page === 'wallet' && <><Text style={s.h1}>Rewards</Text><View style={s.rewardCard}><Text style={s.rewardLabel}>COIN WALLET</Text><Text style={s.rewardBalance}>✦ {walletCount}</Text><Text style={s.rewardDescription}>Rewards are disabled while the earning model is reviewed.</Text></View><View style={s.card}><Text style={s.cardTitle}>A safer launch plan</Text><Text style={s.body}>We’ll first launch the community features and moderation tools. We can revisit in-app points only after confirming the rules for the exact reward. Cash, gift cards, transferable points, and revenue sharing are not enabled.</Text><View style={s.warning}><Text style={s.warningText}>No ads are served and no coins are paid out in this build.</Text></View></View></>}
-      {page === 'profile' && <><View style={s.profileTop}><Avatar url={profile?.avatar_url} name={profile?.display_name ?? 'You'} large /><View style={{ flex: 1 }}><Text style={s.h1}>{profile?.display_name ?? 'Your profile'}</Text><Text style={s.sub}>@{profile?.username ?? ''}</Text></View><Pressable onPress={signOut}><Text style={s.actionText}>Sign out</Text></Pressable></View><View style={s.card}><Text style={s.cardTitle}>Edit profile</Text><TextInput value={profileName} onChangeText={setProfileName} placeholder="Display name" style={s.input} maxLength={50} /><TextInput value={profileBio} onChangeText={setProfileBio} placeholder="A little about you" style={[s.input, { minHeight: 80, textAlignVertical: 'top' }]} multiline maxLength={300} /><Pressable style={s.primaryButton} onPress={saveProfile}><Text style={s.primaryText}>Save profile</Text></Pressable></View><Text style={s.cardTitle}>Your posts</Text><Feed posts={posts.filter(p => p.user_id === session.user.id)} userId={session.user.id} following={following} onLike={toggleLike} onComment={openComments} onReport={reportPost} onFollow={toggleFollow} onRemove={async p => { await supabase!.from('posts').delete().eq('id', p.id); await load(); }} /></>}
+      {page === 'profile' && <><View style={s.profileTop}><Avatar url={profile?.avatar_url} name={profile?.display_name ?? 'You'} large /><View style={{ flex: 1 }}><Text style={s.h1}>{profile?.display_name ?? 'Your profile'}</Text><Text style={s.sub}>@{profile?.username ?? ''}</Text></View><Pressable onPress={signOut}><Text style={s.actionText}>Sign out</Text></Pressable></View><View style={s.card}><Text style={s.cardTitle}>Edit profile</Text><TextInput value={profileName} onChangeText={setProfileName} placeholder="Display name" style={s.input} maxLength={50} /><TextInput value={profileBio} onChangeText={setProfileBio} placeholder="A little about you" style={[s.input, { minHeight: 80, textAlignVertical: 'top' }]} multiline maxLength={300} /><Pressable style={s.primaryButton} onPress={saveProfile}><Text style={s.primaryText}>Save profile</Text></Pressable></View><Text style={s.cardTitle}>Your posts</Text><Feed posts={posts.filter(p => p.user_id === session.user.id)} userId={session.user.id} following={following} onLike={toggleLike} onComment={openComments} onReport={reportPost} onFollow={toggleFollow} onRemove={removePost} /></>}
       {page === 'moderation' && profile?.is_admin && <><Text style={s.h1}>Review queue</Text><Text style={s.sub}>Approve appropriate posts; reject content that breaks the rules.</Text><Feed posts={posts.filter(p => p.status === 'pending')} userId={session.user.id} following={following} onLike={toggleLike} onComment={openComments} onReport={reportPost} onFollow={toggleFollow} onRemove={async p => { await moderate(p, 'rejected'); }} onApprove={p => moderate(p, 'approved')} admin /><View style={s.card}><Text style={s.cardTitle}>Open reports ({reports.length})</Text>{reports.map(r => <View key={r.id} style={s.personRow}><View style={{ flex: 1 }}><Text style={s.bold}>{r.target_type} report</Text><Text style={s.sub}>{r.reason} · {r.target_id.slice(0, 8)}</Text></View><Pressable onPress={() => closeReport(r.id, 'reviewed')}><Text style={s.approveText}>Review</Text></Pressable><Pressable onPress={() => closeReport(r.id, 'dismissed')}><Text style={s.rejectText}>Dismiss</Text></Pressable></View>)}{reports.length === 0 && <Text style={s.sub}>No open reports.</Text>}</View></>}
       {page === 'moderation' && !profile?.is_admin && <Text style={s.sub}>This page is only available to moderators.</Text>}
     </ScrollView>
