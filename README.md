@@ -31,7 +31,11 @@ GitHub Pages is free for a **public** repository. The published website is publi
 3. If you already connected Supabase, add repository **Variables** named `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` under **Settings → Secrets and variables → Actions → Variables**. These values are included in the public web app bundle; never use the Supabase service-role key here.
 4. Push to `main` or run **Actions → Build and publish Loop on GitHub Pages → Run workflow**. The published URL appears in the deployment job, usually `https://VIKASSHARMA-AIR.github.io/loop-social/`.
 
-If the variables are missing, the site still builds but shows the cloud setup screen and cannot sign in or share posts. GitHub Pages hosts only the web client; Supabase remains the cloud backend. Android builds are produced separately from this same source project.
+If the variables are missing, the site still builds but shows the cloud setup screen and cannot sign in or share posts. GitHub Pages hosts only the web client; Supabase remains the cloud backend.
+
+## Android test build
+
+The **Build Loop Android APK** workflow creates an installable debug APK when app or backend files change on `main`. Open **Actions**, select the completed workflow run, and download the `loop-android-debug-apk` artifact. This debug APK is for device testing, not a Play Store release. If you added the Supabase repository variables above, the APK includes them; otherwise it opens in cloud setup mode.
 
 ## Before public launch
 
